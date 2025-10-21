@@ -1,5 +1,5 @@
 # ========= Build stage =========
-FROM golang:1.22-alpine AS build
+FROM golang:tip-trixie AS build
 WORKDIR /src
 # RUN apk add --no-cache git ca-certificates  # 仅在有第三方依赖时需要
 
@@ -17,3 +17,4 @@ ENV STREAM_CONFIG=/app/config.json
 EXPOSE 8000
 USER nonroot:nonroot
 ENTRYPOINT ["/app/stream-proxy"]
+
