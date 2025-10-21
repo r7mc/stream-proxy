@@ -3,6 +3,8 @@ FROM golang:1.22-alpine AS build
 WORKDIR /src
 COPY . .
 ENV CGO_ENABLED=0
+
+RUN mkdir -p /out
 RUN --mount=type=cache,target=/root/.cache/go-build \
     go build -trimpath -ldflags "-s -w -buildid=" -o /out/stream-proxy .
 
