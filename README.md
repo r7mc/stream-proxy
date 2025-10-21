@@ -6,7 +6,7 @@ services:
     image: ghcr.io/r7mc/stream-proxy:latest
     container_name: stream-proxy
     volumes:
-      - ./config.json:/app/config.json:ro
+      - ./config.json:/app/config.json
     # 与 config.json 的 listen.port 保持一致
     ports:
       - "8000:8000"
