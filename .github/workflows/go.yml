@@ -1,28 +1,108 @@
-# This workflow will build a golang project
-# For more information see: https://docs.github.com/en/actions/automating-builds-and-tests/building-and-testing-go
-
-name: Go
+name: Build binaries
 
 on:
   push:
     branches: [ "main" ]
-  pull_request:
-    branches: [ "main" ]
+    tags: [ "v*", "release-*" ]
+  workflow_dispatch:
+
+permissions:
+  contents: write   # 需要写 Release
+  packages: read
 
 jobs:
-
   build:
     runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          # Linux
+          - goos: linux
+            goarch: amd64
+            ext: ""
+          - goos: linux
+            goarch: arm64
+            ext: ""
+          # Windows
+          - goos: windows
+            goarch: amd64
+            ext: .exe
+          - goos: windows
+            goarch: arm64
+            ext: .exe
+
     steps:
-    - uses: actions/checkout@v4
+      - uses: actions/checkout@v4
 
-    - name: Set up Go
-      uses: actions/setup-go@v4
-      with:
-        go-version: '1.20'
+      - name: Setup Go
+        uses: actions/setup-go@v5
+        with:
+          go-version: "1.22.x"
+          cache: true
 
-    - name: Build
-      run: go build -v ./...
+      - name: Compute version
+        id: ver
+        shell: bash
+        run: |
+          if [[ "${GITHUB_REF_TYPE}" == "tag" ]]; then
+            VERSION="${GITHUB_REF_NAME}"
+          else
+            VERSION="commit-${GITHUB_SHA::7}"
+          fi
+          echo "version=${VERSION}" >> "$GITHUB_OUTPUT"
+          echo "VERSION=$VERSION"
 
-    - name: Test
-      run: go test -v ./...
+      - name: Build
+        env:
+          GOOS: ${{ matrix.goos }}
+          GOARCH: ${{ matrix.goarch }}
+          CGO_ENABLED: 0
+          VERSION: ${{ steps.ver.outputs.version }}
+        run: |
+          mkdir -p dist
+          OUT="stream-proxy${{ matrix.ext }}"
+          # -X 注入版本
+          go build -trimpath -ldflags "-s -w -buildid= -X 'main.version=${VERSION}'" -o "${OUT}" .
+          # 组织包名：stream-proxy_<os>_<arch>.zip / .tar.gz
+          PKG="stream-proxy_${{ matrix.goos }}_${{ matrix.goarch }}"
+          if [[ "${{ matrix.goos }}" == "windows" ]]; then
+            7z a -tzip "dist/${PKG}.zip" "${OUT}"
+          else
+            tar -C . -czf "dist/${PKG}.tar.gz" "${OUT}"
+          fi
+          # 产出校验和
+          (cd dist && sha256sum * > SHA256SUMS.txt || shasum -a 256 * > SHA256SUMS.txt)
+
+      - name: Upload artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: stream-proxy-${{ matrix.goos }}-${{ matrix.goarch }}
+          path: dist/*
+
+  release:
+    needs: build
+    if: startsWith(github.ref, 'refs/tags/')   # 仅在打 tag 时创建 Release
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          path: dist_all
+
+      - name: Merge artifacts
+        run: |
+          mkdir -p release
+          find dist_all -type f -name "*.zip" -exec cp {} release/ \;
+          find dist_all -type f -name "*.tar.gz" -exec cp {} release/ \;
+          # 合并所有 SHA256SUMS
+          cat dist_all/*/SHA256SUMS.txt > release/SHA256SUMS.txt
+
+      - name: Create GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          files: |
+            release/*.zip
+            release/*.tar.gz
+            release/SHA256SUMS.txt
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
