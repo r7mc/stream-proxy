@@ -1,12 +1,13 @@
 # ========= Build stage =========
 FROM golang:1.22-alpine AS build
 WORKDIR /src
+# RUN apk add --no-cache git ca-certificates  # 仅在有第三方依赖时需要
+
 COPY . .
 ENV CGO_ENABLED=0
 
 RUN mkdir -p /out
-RUN --mount=type=cache,target=/root/.cache/go-build \
-    go build -trimpath -ldflags "-s -w -buildid=" -o /out/stream-proxy .
+RUN go build -v -trimpath -ldflags "-s -w -buildid=" -o /out/stream-proxy .
 
 # ========= Run stage =========
 FROM gcr.io/distroless/static:nonroot
